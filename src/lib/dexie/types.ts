@@ -1,111 +1,75 @@
-// Fluid-PWA Core Types for Offline Data Management
-
+// Core types for Fluid-PWA framework
 import { Table } from 'dexie'
 
 /**
- * Sync status indicating the state of an offline item
+ * Sync status for offline items
  */
 export type SyncStatus = 
-  | 'NEW'              // Newly created, not yet attempted to sync
-  | 'PENDING_CREATE'   // Needs to be created on server
-  | 'PENDING_UPDATE'   // Needs to be updated on server
-  | 'PENDING_DELETE'   // Needs to be deleted on server
+  | 'NEW'              // Newly created locally, not yet marked for sync
+  | 'PENDING_CREATE'   // Created offline, waiting to be synced to server
+  | 'PENDING_UPDATE'   // Updated offline, waiting to sync changes
+  | 'PENDING_DELETE'   // Deleted offline, waiting to sync deletion
   | 'SYNCED'          // Successfully synced with server
-  | 'ERROR'           // Sync attempt failed
+  | 'ERROR'           // Error occurred during sync
 
 /**
- * Core structure for items managed by Fluid-PWA
- * All offline items should extend this interface
+ * Base interface for all offline items managed by Fluid-PWA
  */
-export interface FluidItem {
-  /** Client-generated unique ID (UUID) - primary key for offline items */
-  localId: string
-  
-  /** Server ID once synced (optional until synced) */
-  serverId?: string | number
-  
-  /** Current sync status */
+export interface OfflineItem {
+  localId: string              // Client-generated UUID
+  serverId?: string | number   // Server ID once synced
   syncStatus: SyncStatus
-  
-  /** When this item was last modified offline */
-  lastModifiedOffline: number
-  
-  /** User ID if data is user-specific (optional) */
+  lastModifiedOffline: number  // Timestamp
+  userId?: string             // User-specific data
+  errorMessage?: string       // Error details if syncStatus is 'ERROR'
+}
+
+/**
+ * Schema definition for Dexie stores
+ * Key = store name, Value = Dexie schema string
+ */
+export interface FluidPWASchema {
+  [storeName: string]: string
+}
+
+/**
+ * Configuration for initializing Fluid-PWA
+ */
+export interface FluidPWAConfig {
+  databaseName: string
+  schema: FluidPWASchema
+  version?: number
   userId?: string
-  
-  /** Error message if sync failed (optional) */
-  errorMessage?: string
-  
-  /** Number of sync attempts (for retry logic) */
-  syncAttempts?: number
+  enableLogging?: boolean
 }
 
 /**
- * Schema definition for a Dexie store
- */
-export interface StoreSchema {
-  [storeName: string]: string // Dexie schema string format
-}
-
-/**
- * Configuration for initializing Fluid-PWA database
- */
-export interface FluidDexieConfig {
-  /** Database name */
-  dbName: string
-  
-  /** Database version */
-  version: number
-  
-  /** Store schemas defined by the consuming application */
-  stores: StoreSchema
-  
-  /** Optional upgrade function for schema migrations */
-  upgrade?: (db: any, oldVersion: number, newVersion: number) => void
-}
-
-/**
- * Query options for getting items from stores
+ * Query options for retrieving items
  */
 export interface QueryOptions {
-  /** Filter by user ID */
-  userId?: string
-  
-  /** Filter by sync status */
-  syncStatus?: SyncStatus | SyncStatus[]
-  
-  /** Limit number of results */
   limit?: number
-  
-  /** Offset for pagination */
   offset?: number
-  
-  /** Sort by field (ascending by default) */
   orderBy?: string
-  
-  /** Sort direction */
   reverse?: boolean
-  
-  /** Additional where clauses */
-  where?: Record<string, any>
+  filter?: (item: any) => boolean
 }
 
 /**
- * Hooks configuration for pre/post operations
+ * Options for CRUD operations
  */
-export interface HooksConfig<T = any> {
-  onBeforeAdd?: (item: T) => T | Promise<T>
-  onAfterAdd?: (item: T, id: string) => void | Promise<void>
-  onBeforeUpdate?: (updates: Partial<T>, item: T) => Partial<T> | Promise<Partial<T>>
-  onAfterUpdate?: (item: T) => void | Promise<void>
-  onBeforeDelete?: (item: T) => boolean | Promise<boolean>
-  onAfterDelete?: (id: string) => void | Promise<void>
+export interface CRUDOptions {
+  onBeforeAdd?: (item: any) => any | Promise<any>
+  onAfterAdd?: (item: any, result: any) => void | Promise<void>
+  onBeforeUpdate?: (item: any, updates: any) => any | Promise<any>
+  onAfterUpdate?: (item: any, result: any) => void | Promise<void>
+  onBeforeDelete?: (itemId: string) => boolean | Promise<boolean>
+  onAfterDelete?: (itemId: string) => void | Promise<void>
 }
 
 /**
- * Result type for operations that might fail
+ * Result type for CRUD operations
  */
-export interface OperationResult<T = any> {
+export interface CRUDResult<T = any> {
   success: boolean
   data?: T
   error?: string
@@ -114,13 +78,31 @@ export interface OperationResult<T = any> {
 /**
  * Batch operation result
  */
-export interface BatchOperationResult {
-  successful: number
-  failed: number
-  errors: Array<{ id: string; error: string }>
+export interface BatchResult {
+  success: boolean
+  processed: number
+  errors: Array<{ item: any; error: string }>
 }
 
 /**
- * Type for Dexie table with FluidItem structure
+ * Sync queue item for service worker
  */
-export type FluidTable<T extends FluidItem = FluidItem> = Table<T, string> 
+export interface SyncQueueItem extends OfflineItem {
+  storeName: string
+  operation: 'CREATE' | 'UPDATE' | 'DELETE'
+  payload: any
+  attempts: number
+  lastAttempt?: number
+}
+
+/**
+ * Type helper to ensure store items extend OfflineItem
+ */
+export type FluidStore<T> = T & OfflineItem
+
+/**
+ * Database instance type with typed tables
+ */
+export interface FluidDatabase {
+  [storeName: string]: Table<any, string>
+} 
