@@ -13,6 +13,20 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
+
+    /* Additional Strict Type Checking */
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": false,
+    "exactOptionalPropertyTypes": false,
+
+    /* Advanced Options */
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
     "plugins": [
       {
         "name": "next"

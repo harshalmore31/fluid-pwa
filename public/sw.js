@@ -3,6 +3,20 @@ const STATIC_CACHE_NAME = 'pwa-static-v1'
 const DYNAMIC_CACHE_NAME = 'pwa-dynamic-v1'
 const RUNTIME_CACHE_NAME = 'pwa-runtime-v1'
 
+// Cache expiration settings
+const CACHE_EXPIRATION = {
+  STATIC: 30 * 24 * 60 * 60 * 1000, // 30 days
+  DYNAMIC: 7 * 24 * 60 * 60 * 1000, // 7 days
+  RUNTIME: 24 * 60 * 60 * 1000, // 24 hours
+  API: 5 * 60 * 1000 // 5 minutes
+}
+
+const MAX_CACHE_SIZE = {
+  STATIC: 50,
+  DYNAMIC: 30,
+  RUNTIME: 100
+}
+
 const staticAssets = [
   '/',
   '/offline',
@@ -28,6 +42,64 @@ const CACHE_STRATEGIES = {
   STALE_WHILE_REVALIDATE: 'stale-while-revalidate'
 }
 
+// Cache management helpers
+async function isCacheExpired(response, maxAge) {
+  if (!response) return true
+  const cachedDate = response.headers.get('sw-cache-date')
+  if (!cachedDate) return false
+  const age = Date.now() - parseInt(cachedDate, 10)
+  return age > maxAge
+}
+
+async function putInCacheWithTimestamp(cacheName, request, response) {
+  const cache = await caches.open(cacheName)
+  const clonedResponse = response.clone()
+  const headers = new Headers(clonedResponse.headers)
+  headers.append('sw-cache-date', Date.now().toString())
+
+  const modifiedResponse = new Response(clonedResponse.body, {
+    status: clonedResponse.status,
+    statusText: clonedResponse.statusText,
+    headers
+  })
+
+  await cache.put(request, modifiedResponse)
+  await trimCache(cacheName)
+}
+
+async function trimCache(cacheName) {
+  const cache = await caches.open(cacheName)
+  const keys = await cache.keys()
+  const maxSize = MAX_CACHE_SIZE[cacheName.split('-')[1]?.toUpperCase()] || 50
+
+  if (keys.length > maxSize) {
+    const deleteCount = keys.length - maxSize
+    for (let i = 0; i < deleteCount; i++) {
+      await cache.delete(keys[i])
+    }
+  }
+}
+
+async function clearExpiredCaches() {
+  const cacheNames = await caches.keys()
+
+  for (const cacheName of cacheNames) {
+    const cache = await caches.open(cacheName)
+    const requests = await cache.keys()
+
+    let maxAge = CACHE_EXPIRATION.DYNAMIC
+    if (cacheName.includes('static')) maxAge = CACHE_EXPIRATION.STATIC
+    if (cacheName.includes('runtime')) maxAge = CACHE_EXPIRATION.RUNTIME
+
+    for (const request of requests) {
+      const response = await cache.match(request)
+      if (await isCacheExpired(response, maxAge)) {
+        await cache.delete(request)
+      }
+    }
+  }
+}
+
 // Install event - cache resources
 self.addEventListener('install', (event) => {
   console.log('Service Worker: Installing')
@@ -51,16 +123,19 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   console.log('Service Worker: Activating')
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (![STATIC_CACHE_NAME, DYNAMIC_CACHE_NAME, RUNTIME_CACHE_NAME].includes(cacheName)) {
-            console.log('Service Worker: Deleting old cache:', cacheName)
-            return caches.delete(cacheName)
-          }
-        })
-      )
-    }).then(() => {
+    Promise.all([
+      caches.keys().then((cacheNames) => {
+        return Promise.all(
+          cacheNames.map((cacheName) => {
+            if (![STATIC_CACHE_NAME, DYNAMIC_CACHE_NAME, RUNTIME_CACHE_NAME].includes(cacheName)) {
+              console.log('Service Worker: Deleting old cache:', cacheName)
+              return caches.delete(cacheName)
+            }
+          })
+        )
+      }),
+      clearExpiredCaches()
+    ]).then(() => {
       console.log('Service Worker: Activation complete')
     })
   )
